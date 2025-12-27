@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root{
+    /* RGB triples for Tailwind rgb(var(--x) / a) */
+    --bp-bg: 252 244 229;
+    --bp-card: 255 255 255;
+    --bp-ink: 65 35 18;
+    --bp-muted: 130 120 110;
+
+    --bp-primary: 70 31 12;
+    --bp-primary-2: 145 70 30;
+
+    --bp-border: 232 226 215;
+    --bp-accent: 245 217 109;
+    --bp-peach: 255 240 225;
+
+    --bp-success: 22 163 74;
+    --bp-danger: 220 38 38;
+}
+
+html, body, #root {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    background: rgb(var(--bp-bg));
+    color: rgb(var(--bp-ink));
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}

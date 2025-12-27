@@ -1,0 +1,174 @@
+name: beanefits-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v25.3.3
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://redpanda:19092
+      - --rpc-addr
+      - redpanda:33145
+      - --advertise-rpc-addr
+      - redpanda:33145
+      - --mode
+      - dev-container
+      - --smp
+      - "1"
+      - --default-log-level=info
+      - --set
+      - redpanda.auto_create_topics_enabled=true
+    ports:
+      - "19092:19092"   # Kafka с хоста
+      - "9644:9644"    # Admin API с хоста
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    # healthcheck оставляем только как "индикатор", но НЕ используем его для блокировки dependents
+    healthcheck:
+      test: ["CMD-SHELL", "rpk -X admin.hosts=localhost:9644 cluster health >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+
+  init-kafka-topic:
+    image: redpandadata/redpanda:v25.3.3
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: "redpanda:19092"
+      KAFKA_TOPIC: "ints"
+      KAFKA_PARTITIONS: "1"
+      KAFKA_REPLICAS: "1"
+    volumes:
+      - ./init-topics.sh:/init-topics.sh:ro
+    entrypoint: [ "/bin/sh", "/init-topics.sh" ]
+    restart: "no"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.11.5-alpine
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: "1"
+    container_name: clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - ch_data:/var/lib/clickhouse
+    depends_on:
+      init-kafka-topic:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --host localhost --query 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  init-clickhouse:
+    image: clickhouse/clickhouse-server:25.11.5-alpine
+    container_name: init-clickhouse
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      init-kafka-topic:
+        condition: service_completed_successfully
+    volumes:
+      - ./deploy/clickhouse/init:/init:ro
+      - ./init-clickhouse.sh:/init-clickhouse.sh:ro
+    entrypoint: [ "/bin/sh", "/init-clickhouse.sh" ]
+    environment:
+      CH_HOST: clickhouse
+      CH_PORT: "9000"
+      CH_DB_CHECK: streaming
+      INIT_DIR: /init
+    restart: "no"
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: kafka-ui
+    depends_on:
+      init-kafka-topic:
+        condition: service_completed_successfully
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: redpanda
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: redpanda:9092
+      DYNAMIC_CONFIG_ENABLED: "true"
+
+  tabix:
+    image: spoonest/clickhouse-tabix-web-client:latest
+    container_name: clickhouse-ui
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "8091:80"
+    environment:
+      CH_NAME: clickhouse
+      CH_HOST: "http://localhost:8123"
+      CH_LOGIN: default
+      CH_PASSWORD: ""
+      CH_PARAMS: "add_http_cors_header=1"
+
+  api:
+    build: .
+    environment:
+      HTTP_ADDR: ${HTTP_ADDR}
+      HTTP_BASE_URL: ${HTTP_BASE_URL}
+      SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT}
+      POSTGRES_URL: ${POSTGRES_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_TTL: ${JWT_TTL}
+      MIGRATIONS_DIR: ${MIGRATIONS_DIR}
+
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-redpanda:9092}
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-ints}
+      KAFKA_WRITE_TIMEOUT: ${KAFKA_WRITE_TIMEOUT:-3s}
+      KAFKA_BATCH_SIZE: ${KAFKA_BATCH_SIZE:-1}
+      KAFKA_BATCH_TIMEOUT: ${KAFKA_BATCH_TIMEOUT:-0s}
+
+      KAFKA_AUTOPUBLISH: ${KAFKA_AUTOPUBLISH:-true}
+      KAFKA_PUBLISH_INTERVAL: ${KAFKA_PUBLISH_INTERVAL:-2s}
+
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init-kafka-topic:
+        condition: service_completed_successfully
+      init-clickhouse:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
+  redpanda_data:
+  ch_data:
