@@ -1,4 +1,4 @@
-CREATE MATERIALIZED VIEW streaming.mv_ints_to_sums
+CREATE MATERIALIZED VIEW IF NOT EXISTS streaming.mv_ints_to_sums
             TO streaming.ints_sums
 AS
 SELECT
@@ -13,7 +13,7 @@ FROM
 WHERE n IS NOT NULL;
 
 
-CREATE MATERIALIZED VIEW streaming.mv_ints_to_dlq
+CREATE MATERIALIZED VIEW IF NOT EXISTS streaming.mv_ints_to_dlq
             TO streaming.ints_dlq
 AS
 SELECT

@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start services
+        run: |
+          set -euo pipefail
+          docker compose up -d --build
+
+      - name: Wait for readiness
+        run: |
+          set -euo pipefail
+          URL="http://localhost:8080/readyz"
+          for i in $(seq 1 60); do
+            if curl -fsS "$URL" >/dev/null 2>&1; then
+              echo "Ready."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Service not ready"
+          docker compose logs --no-color --tail=300 || true
+          exit 1
+
+      - name: Run Postman tests (Newman)
+        run: |
+          set -euo pipefail
+          npx -y newman@latest run tests/postman/collection.json \
+            -e tests/postman/env.ci.json \
+            --env-var "baseUrl=http://localhost:8080" \
+            --timeout-request 30000
+
+      - name: Shutdown
+        if: always()
+        run: |
+          docker compose down -v || true

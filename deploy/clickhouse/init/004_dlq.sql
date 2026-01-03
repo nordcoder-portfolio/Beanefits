@@ -1,4 +1,4 @@
-CREATE TABLE streaming.ints_dlq
+CREATE TABLE IF NOT EXISTS streaming.ints_dlq
 (
     event_time DateTime64(3),
     topic LowCardinality(String),

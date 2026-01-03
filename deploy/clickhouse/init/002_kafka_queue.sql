@@ -1,4 +1,4 @@
-CREATE TABLE streaming.ints_queue
+CREATE TABLE IF NOT EXISTS streaming.ints_queue
 (
     raw String
 )
