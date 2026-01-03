@@ -35,8 +35,8 @@ jobs:
       - name: Run Postman tests (Newman)
         run: |
           set -euo pipefail
-          npx -y newman@latest run tests/postman/collection.json \
-            -e tests/postman/env.ci.json \
+          npx -y newman@latest run test/postman/collection.json \
+            -e test/postman/env.ci.json --folder tests \
             --env-var "baseUrl=http://localhost:8080" \
             --timeout-request 30000
 
