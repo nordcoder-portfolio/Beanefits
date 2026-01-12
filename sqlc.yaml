@@ -1,0 +1,18 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "internal/repository/postgres/sqlc/schema.sql"
+    queries: "internal/repository/postgres/sqlc/queries"
+    gen:
+      go:
+        package: "gen"
+        out: "internal/repository/postgres/sqlc/gen"
+        sql_package: "pgx/v5"
+
+        emit_methods_with_db_argument: true
+
+        overrides:
+          - db_type: "pg_catalog.numeric"
+            go_type:
+              import: "github.com/shopspring/decimal"
+              type: "Decimal"

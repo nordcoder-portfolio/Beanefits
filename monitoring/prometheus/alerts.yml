@@ -1,0 +1,11 @@
+groups:
+  - name: api-availability
+    rules:
+      - alert: ApiDown
+        expr: up{job="api"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "API is down"
+          description: "Prometheus cannot scrape api:8080/metrics"

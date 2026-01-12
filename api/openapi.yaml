@@ -1,0 +1,897 @@
+openapi: 3.0.3
+info:
+  title: Coffee Loyalty Service API
+  version: 1.0.0
+  description: >
+    MVP loyalty backend for a coffee shop.
+
+servers:
+  - url: http://localhost:8080
+    description: Local
+  - url: https://api.example.com
+    description: Production
+
+tags:
+  - name: Health
+  - name: Auth
+  - name: Client
+  - name: Cashier
+  - name: Admin
+
+security:
+  - bearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Readiness probe (DB connectivity)
+      security: []
+      responses:
+        "200":
+          description: Ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: Not ready
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /metrics:
+    get:
+      tags: [Health]
+      summary: Prometheus metrics endpoint
+      security: []
+      responses:
+        "200":
+          description: Prometheus text format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register client (phone + password)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "409":
+          description: Phone already exists
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          description: Validation error
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login (phone + password)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /me:
+    get:
+      tags: [Client]
+      summary: Get current client profile (including public code for QR)
+      description: CLIENT only.
+      responses:
+        "200":
+          description: Profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /me/balance:
+    get:
+      tags: [Client]
+      summary: Get current client balance
+      description: CLIENT only.
+      responses:
+        "200":
+          description: Balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BalanceResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /me/events:
+    get:
+      tags: [Client]
+      summary: Get client events (history)
+      description: CLIENT only. Returns newest first.
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/BeforeTsParam"
+      responses:
+        "200":
+          description: Events page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventsPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /cashier/accounts/by-code/{publicCode}:
+    get:
+      tags: [Cashier]
+      summary: Lookup account by public code (QR payload)
+      description: CASHIER only. Used by POS to resolve customer by QR/publicCode.
+      parameters:
+        - name: publicCode
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/PublicCode"
+      responses:
+        "200":
+          description: Account summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashierAccountSummary"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /cashier/accounts/by-code/{publicCode}/events:
+    get:
+      tags: [Cashier]
+      summary: Get account events by public code
+      description: CASHIER only. Returns newest first.
+      parameters:
+        - name: publicCode
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/PublicCode"
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/BeforeTsParam"
+      responses:
+        "200":
+          description: Events page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventsPage"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /cashier/earn:
+    post:
+      tags: [Cashier]
+      summary: Earn points for a purchase (idempotent)
+      description: >
+        CASHIER only. Idempotent by (publicCode + operationId).
+        Ruleset is selected by request.ts (or server time if omitted), non-retroactive.
+        Points formula:
+        basePoints = floor(amountMoney / baseRubPerPoint)
+        levelPercent = percentEarn for current level (determined by totalSpendMoney before this purchase)
+        points = floor(basePoints * (levelPercent / 100.0))
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EarnRequest"
+      responses:
+        "200":
+          description: Earn applied or returned from idempotency cache
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationResult"
+        "404":
+          description: Account not found by publicCode
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /cashier/spend:
+    post:
+      tags: [Cashier]
+      summary: Spend points (idempotent, concurrency-safe)
+      description: >
+        CASHIER only. Idempotent by (publicCode + operationId).
+        If amountPoints > current balance -> 409 (no changes).
+        Concurrent spend requests: only one can succeed if they would make balance negative.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpendRequest"
+      responses:
+        "200":
+          description: Spend applied or returned from idempotency cache
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationResult"
+        "409":
+          description: Not enough balance
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: Account not found by publicCode
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: List users
+      description: ADMIN only.
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: q
+          in: query
+          required: false
+          description: Search by phone substring
+          schema:
+            type: string
+            maxLength: 64
+      responses:
+        "200":
+          description: Users page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsersPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/users/{userId}:
+    delete:
+      tags: [Admin]
+      summary: Delete (deactivate) user
+      description: >
+        ADMIN only. Recommended implementation: soft-delete (set is_active=false) to preserve event history.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: Deleted (deactivated)
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/rulesets:
+    get:
+      tags: [Admin]
+      summary: List rulesets (newest first)
+      description: ADMIN only.
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Rulesets page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RulesetsPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+    post:
+      tags: [Admin]
+      summary: Create new ruleset (not retroactive)
+      description: >
+        ADMIN only. Creates a new ruleset effective from given timestamp.
+        Future operations use the ruleset selected by operation ts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRulesetRequest"
+      responses:
+        "201":
+          description: Created ruleset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ruleset"
+        "409":
+          description: ruleset.effectiveFrom already exists
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/rulesets/current:
+    get:
+      tags: [Admin]
+      summary: Get current ruleset (by server time)
+      description: ADMIN only.
+      responses:
+        "200":
+          description: Current ruleset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ruleset"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    BeforeTsParam:
+      name: beforeTs
+      in: query
+      required: false
+      description: Return events with ts < beforeTs (for pagination)
+      schema:
+        type: string
+        format: date-time
+
+  responses:
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Forbidden:
+      description: Forbidden
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: Not Found
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    ValidationError:
+      description: Validation error
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          example: "about:blank"
+        title:
+          type: string
+          example: "Validation error"
+        status:
+          type: integer
+          example: 422
+        detail:
+          type: string
+          example: "phone: invalid format"
+        instance:
+          type: string
+          example: "/cashier/spend"
+        code:
+          type: string
+          description: Stable machine-readable error code (optional but recommended)
+          example: "NOT_ENOUGH_BALANCE"
+
+    Phone:
+      type: string
+      description: E.164-like phone format (MVP)
+      example: "+79000000000"
+      pattern: "^\\+?[1-9]\\d{10,14}$"
+      maxLength: 16
+
+    PublicCode:
+      type: string
+      description: Public code encoded into QR (UUID)
+      example: "550e8400-e29b-41d4-a716-446655440000"
+      format: uuid
+      minLength: 36
+      maxLength: 36
+
+    RoleCode:
+      type: string
+      enum: [CLIENT, CASHIER, ADMIN]
+
+    LevelCode:
+      type: string
+      description: Business level label (free-form in ruleset)
+      example: "Medium Roast"
+      minLength: 1
+      maxLength: 64
+
+    RegisterRequest:
+      type: object
+      required: [phone, password]
+      properties:
+        phone:
+          $ref: "#/components/schemas/Phone"
+        password:
+          type: string
+          minLength: 6
+          maxLength: 128
+
+    LoginRequest:
+      type: object
+      required: [phone, password]
+      properties:
+        phone:
+          $ref: "#/components/schemas/Phone"
+        password:
+          type: string
+          minLength: 6
+          maxLength: 128
+
+    AuthResponse:
+      type: object
+      required: [accessToken, user]
+      properties:
+        accessToken:
+          type: string
+          description: JWT access token
+        user:
+          $ref: "#/components/schemas/User"
+        account:
+          $ref: "#/components/schemas/Account"
+      example:
+        accessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        user:
+          id: 10
+          phone: "+79000000000"
+          roles: ["CLIENT"]
+          isActive: true
+          createdAt: "2025-12-14T10:00:00Z"
+        account:
+          id: 55
+          publicCode: "ABCD-1234-XYZ"
+          balancePoints: 0
+          totalSpendMoney: "0.00"
+          levelCode: "Green Bean"
+          createdAt: "2025-12-14T10:00:00Z"
+
+    User:
+      type: object
+      required: [id, phone, roles, isActive, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        phone:
+          $ref: "#/components/schemas/Phone"
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoleCode"
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    Account:
+      type: object
+      required: [id, publicCode, balancePoints, totalSpendMoney, levelCode, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        publicCode:
+          $ref: "#/components/schemas/PublicCode"
+        balancePoints:
+          type: integer
+          minimum: 0
+        totalSpendMoney:
+          type: string
+          description: Decimal as string to avoid float issues
+          example: "12500.50"
+        levelCode:
+          $ref: "#/components/schemas/LevelCode"
+        createdAt:
+          type: string
+          format: date-time
+
+    ClientProfile:
+      type: object
+      required: [user, account]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        account:
+          $ref: "#/components/schemas/Account"
+
+    BalanceResponse:
+      type: object
+      required: [accountId, balancePoints, totalSpendMoney, levelCode, asOf]
+      properties:
+        accountId:
+          type: integer
+          format: int64
+        balancePoints:
+          type: integer
+          minimum: 0
+        totalSpendMoney:
+          type: string
+          example: "12500.50"
+        levelCode:
+          $ref: "#/components/schemas/LevelCode"
+        asOf:
+          type: string
+          format: date-time
+
+    EventType:
+      type: string
+      enum: [EARN, SPEND]
+
+    Event:
+      type: object
+      required: [id, accountId, type, deltaPoints, balanceAfter, ts]
+      properties:
+        id:
+          type: integer
+          format: int64
+        accountId:
+          type: integer
+          format: int64
+        type:
+          $ref: "#/components/schemas/EventType"
+        deltaPoints:
+          type: integer
+          description: Signed delta (+ for EARN, - for SPEND)
+        balanceAfter:
+          type: integer
+          minimum: 0
+        amountMoney:
+          type: string
+          nullable: true
+          description: Present for EARN; decimal as string
+          example: "450.00"
+        rulesetId:
+          type: integer
+          format: int64
+          nullable: true
+        actorUserId:
+          type: integer
+          format: int64
+          nullable: true
+        ts:
+          type: string
+          format: date-time
+
+    EventsPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        nextBeforeTs:
+          type: string
+          format: date-time
+          nullable: true
+          description: Use as beforeTs for the next page (optional)
+
+    OperationType:
+      type: string
+      enum: [EARN, SPEND]
+
+    EarnRequest:
+      type: object
+      required: [operationId, publicCode, amountMoney]
+      properties:
+        operationId:
+          type: string
+          format: uuid
+          description: Client-generated idempotency key
+        publicCode:
+          $ref: "#/components/schemas/PublicCode"
+        amountMoney:
+          type: string
+          description: Decimal as string (money spent)
+          example: "450.00"
+        ts:
+          type: string
+          format: date-time
+          nullable: true
+          description: Operation timestamp. If omitted, server time is used.
+
+    SpendRequest:
+      type: object
+      required: [operationId, publicCode, amountPoints]
+      properties:
+        operationId:
+          type: string
+          format: uuid
+          description: Client-generated idempotency key
+        publicCode:
+          $ref: "#/components/schemas/PublicCode"
+        amountPoints:
+          type: integer
+          minimum: 1
+        ts:
+          type: string
+          format: date-time
+          nullable: true
+          description: Operation timestamp. If omitted, server time is used.
+
+    OperationResult:
+      type: object
+      required: [operationId, opType, event, balance]
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        opType:
+          $ref: "#/components/schemas/OperationType"
+        event:
+          $ref: "#/components/schemas/Event"
+        balance:
+          $ref: "#/components/schemas/BalanceResponse"
+        idempotentReplay:
+          type: boolean
+          description: true if returned from idempotency cache
+          example: false
+
+    CashierAccountSummary:
+      type: object
+      required: [accountId, publicCode, balancePoints, totalSpendMoney, levelCode]
+      properties:
+        accountId:
+          type: integer
+          format: int64
+        publicCode:
+          $ref: "#/components/schemas/PublicCode"
+        balancePoints:
+          type: integer
+          minimum: 0
+        totalSpendMoney:
+          type: string
+          example: "12500.50"
+        levelCode:
+          $ref: "#/components/schemas/LevelCode"
+
+    UsersPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        total:
+          type: integer
+          nullable: true
+          description: Optional total count (may be expensive)
+
+    CreateRulesetRequest:
+      type: object
+      required: [effectiveFrom, baseRubPerPoint, levels]
+      properties:
+        effectiveFrom:
+          type: string
+          format: date-time
+        baseRubPerPoint:
+          type: string
+          description: Decimal as string. Must be > 0.
+          example: "10.00"
+        levels:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/LevelRuleInput"
+
+    LevelRuleInput:
+      type: object
+      required: [levelCode, thresholdTotalSpend, percentEarn]
+      properties:
+        levelCode:
+          $ref: "#/components/schemas/LevelCode"
+        thresholdTotalSpend:
+          type: string
+          description: Decimal as string. Must be >= 0.
+          example: "0.00"
+        percentEarn:
+          type: string
+          description: >
+            Percent multiplier as string (e.g., "100.00" = base; "110.00" = +10%).
+            Must be > 0.
+          example: "100.00"
+
+    Ruleset:
+      type: object
+      required: [id, effectiveFrom, baseRubPerPoint, levels, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        effectiveFrom:
+          type: string
+          format: date-time
+        baseRubPerPoint:
+          type: string
+          example: "10.00"
+        levels:
+          type: array
+          items:
+            $ref: "#/components/schemas/LevelRule"
+        createdAt:
+          type: string
+          format: date-time
+
+    LevelRule:
+      type: object
+      required: [id, levelCode, thresholdTotalSpend, percentEarn]
+      properties:
+        id:
+          type: integer
+          format: int64
+        levelCode:
+          $ref: "#/components/schemas/LevelCode"
+        thresholdTotalSpend:
+          type: string
+          example: "5000.00"
+        percentEarn:
+          type: string
+          example: "110.00"
+
+    RulesetsPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Ruleset"
+        total:
+          type: integer
+          nullable: true

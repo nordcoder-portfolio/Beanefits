@@ -1,0 +1,114 @@
+Enum event_type {
+  EARN
+  SPEND
+}
+
+Table users {
+  id            bigserial    [pk]
+  phone         text         [not null, unique]
+  password_hash text         [not null]
+  created_at    timestamptz  [not null, default: `now()`]
+  is_active     boolean      [not null, default: true]
+
+  Note: 'Пользователи системы (клиенты, кассиры, админы).'
+}
+
+Table roles {
+  code text [pk]
+
+  Note: 'Справочник ролей: CLIENT, CASHIER, ADMIN.'
+}
+
+Table user_roles {
+  user_id   bigint [not null, ref: > users.id]
+  role_code text   [not null, ref: > roles.code]
+
+  indexes {
+    (user_id, role_code) [pk]
+  }
+
+  Note: 'RBAC: связь пользователей и ролей (M:N).'
+}
+
+Table accounts {
+  id                bigserial     [pk]
+  user_id           bigint        [not null, unique, ref: > users.id]
+  public_code       text          [not null, unique]
+  created_at        timestamptz   [not null, default: `now()`]
+
+  balance_points    int           [not null, default: 0]
+  total_spend_money numeric(12,2) [not null, default: 0]
+  level_code        text
+
+  Note: 'Лояльностный аккаунт клиента: агрегаты баланса и накопленных трат для уровня.'
+}
+
+Table ruleset {
+  id                 bigserial   [pk]
+  effective_from     timestamptz [not null, unique]
+  base_rub_per_point numeric(10,2) [not null]
+  created_by         bigint      [ref: > users.id]
+  created_at         timestamptz [not null, default: `now()`]
+
+  Note: 'Версии правил начисления. Неретроактивность: выбор ruleset по ts операции (max effective_from <= ts).'
+}
+
+Table level_rules {
+  id                    bigserial [pk]
+  ruleset_id            bigint    [not null, ref: > ruleset.id]
+  level_code            text      [not null]
+  threshold_total_spend numeric(12,2) [not null]
+  percent_earn          numeric(5,2)  [not null]
+
+  indexes {
+    (ruleset_id, level_code) [unique]
+    (ruleset_id, threshold_total_spend) [unique]
+  }
+
+  Note: 'Уровни (tiers) внутри конкретной версии правил: пороги по total_spend_money и процент начисления.'
+}
+
+Table operations {
+  id            bigserial   [pk]
+  operation_id  text        [not null]
+  account_id    bigint      [not null, ref: > accounts.id]
+  op_type       event_type  [not null]
+
+  request_json  jsonb       [not null]
+  response_json jsonb
+  http_status   int
+
+  event_id      bigint      [ref: > events.id]
+  created_at    timestamptz [not null, default: `now()`]
+
+  indexes {
+    (account_id, op_type, operation_id) [unique]
+    (account_id, created_at)
+  }
+
+  Note: 'Идемпотентность: повтор того же (account_id, op_type, operation_id) возвращает прежний результат без изменения баланса.'
+}
+
+Table events {
+  id            bigserial   [pk]
+  account_id    bigint      [not null, ref: > accounts.id]
+  type          event_type  [not null]
+
+  delta_points  int         [not null]
+  balance_after int         [not null]
+
+  amount_money  numeric(12,2)
+
+  ts            timestamptz [not null, default: `now()`]
+  created_at    timestamptz [not null, default: `now()`]
+
+  ruleset_id    bigint      [ref: > ruleset.id]
+  actor_user_id bigint      [ref: > users.id]
+
+  indexes {
+    (account_id, ts)
+    (actor_user_id, ts)
+  }
+
+  Note: 'Ledger событий для истории и проверяемости баланса. ruleset_id фиксирует версию правил начисления.'
+}
