@@ -12,6 +12,8 @@
 
 ## 5. Реализация
 Проект написан на Go, запускается двумя командами:
+NOTE: желательно клонировать через unix систему, при клонировании через windows возникают проблемы с .sh файлами
+если на windows с ними возникнут проблемы то их нужно перевести в LF
 docker compose -f docker-compose.prod.yml up
 docker compose -f docker-compose.monitoring up
 
