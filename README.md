@@ -12,8 +12,6 @@
 
 ## 5. Реализация
 Проект написан на Go, запускается двумя командами:
-NOTE: желательно клонировать через unix систему, при клонировании через windows возникают проблемы с .sh файлами
-если на windows с ними возникнут проблемы то их нужно перевести в LF
 docker compose -f docker-compose.prod.yml up
 docker compose -f docker-compose.monitoring up
 
@@ -29,7 +27,7 @@ docker compose -f docker-compose.monitoring up
 (коллекция в test/postman содержит и все ручки api)
 
 ## 6. Docker / CI/CD
-CI зеленый на гите, написан на Github Actions, думаю, его можно счесть аналогом (gitlab)
+CI зеленый на гите, написан на Github Actions, думаю, его можно счесть аналогом gitlab
 CI зеленый, билдит бэк и прогоняет postman тесты
 CD билдит фронт и бэк и сохраняет образы в ghcr, docker-compose.prod.yml пуллит эти образы, что показывает корректность работы CD (код сервисов ему не трубется, но нужны конфиги и .env, запушенный для простоты запуска)
 
@@ -38,9 +36,9 @@ CD билдит фронт и бэк и сохраняет образы в ghcr,
 
 ## 10. Observability
 После запуска контейнеров из docker-compose.monitoring.yml локально на порту 3000 будет Grafana, логин/пароль: admin/admin
-Можно зайти в Alerting -> Alerting rules и увидеть два правила: одно для состояния и наличие ошибок в логах, если положить сервис или вызвать ошибку (например, положить бд), то правила станут firing
+В Alerting -> Alerting rules и увидеть два правила: одно для состояния и наличие ошибок в логах, если положить сервис или вызвать ошибку (например, положить бд), то правила станут firing
 
 ## 12. Kafka / Clickhouse 
 Дабы проверить эту часть, созданы контейнеры с ui для kafka и clickhouse (порты 8090 и 8091)
-В Tabix (8091) query: select  * from streaming.ints_sums чтобы проверить задачу
+В Tabix (8091) query: select * from streaming.ints_sums, чтобы проверить задачу
 В kafka-ui (8090) redpanda->Topics->Messages
